@@ -60,16 +60,16 @@ class Order(models.Model):
 
     order_number = models.CharField(max_length=100, unique=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
-    Product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
     delivery_method = models.CharField(max_length=100, choices=DELIVERY_METHOD_CHOICES)
     is_confirmed = models.BooleanField(default=False)
-    order_date = models.DateField(auto_now=False, auto_now_add=True)
+    order_date_time = models.DateTimeField(auto_now=False, auto_now_add=True)
 
     def __str__(self):
         return (f'{self.order_number} | {self.customer_name} | {self.customer_phone}')
 
     class Meta:
-        ordering = ['order_date', 'order_number']
+        ordering = ['order_date_time', 'order_number']
         verbose_name = 'Заказ'
         verbose_name_plural = 'Заказы'
 
