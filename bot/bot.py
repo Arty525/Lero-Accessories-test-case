@@ -14,7 +14,7 @@ from rest_framework.reverse import reverse_lazy, reverse
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
 django.setup()
 
-from .models import Customer, Category, Product  # Импортируйте из вашего приложения
+from .models import Customer, Category, Product, Cart, CartItem  # Импортируйте из вашего приложения
 
 
 class DjangoBot:
@@ -28,7 +28,7 @@ class DjangoBot:
         """Inline меню для дополнительных действий"""
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🛒 Создать заказ", callback_data="order")],
+                [InlineKeyboardButton(text="🛒 Корзина", callback_data="cart")],
                 [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
                 [InlineKeyboardButton(text="📦 Мои заказы", callback_data="orders")],
                 [InlineKeyboardButton(text='🗒️ Категории товаров', callback_data="categories")],
@@ -281,7 +281,7 @@ class DjangoBot:
                 category_id = await sync_to_async(lambda: product.category.id)()
 
                 product_menu = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text='🛒 Добавить в корзину', callback_data=f'tocart_{product.id}')],
+                    [InlineKeyboardButton(text='🛒 Добавить в корзину', callback_data=f'to_cart_{product.id}')],
                     [InlineKeyboardButton(text='⬅️ Назад к товарам', callback_data=f'category_{category_id}')]
                 ])
 
@@ -327,7 +327,92 @@ class DjangoBot:
                 await callback.message.answer("❌ Ошибка загрузки информации о товаре")
                 await callback.answer()
 
+        #добавление товара в корзину
+        @self.dp.callback_query(F.data.startswith('to_cart_'))
+        async def add_to_cart(callback: types.CallbackQuery):
+            try:
+                customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
+                cart, created = await sync_to_async(Cart.objects.get_or_create)(customer=customer)
 
+                product_id = callback.data.replace('to_cart_', '')
+                product = await sync_to_async(Product.objects.get)(id=product_id)
+
+                # ПРАВИЛЬНО: Проверяем и получаем cart_item за один запрос
+                cart_item_exists = await sync_to_async(
+                    lambda: CartItem.objects.filter(cart=cart, product=product).exists()
+                )()
+
+                if cart_item_exists:
+                    # Если товар уже есть, обновляем количество
+                    cart_item = await sync_to_async(
+                        CartItem.objects.get
+                    )(cart=cart, product=product)
+                    cart_item.quantity += 1
+                    await sync_to_async(cart_item.save)()
+                    message = f"✅ Добавлена еще 1 шт. товара \"{product.title}\""
+                else:
+                    # Если товара нет, создаем новую запись
+                    cart_item = await sync_to_async(
+                        CartItem.objects.create
+                    )(cart=cart, product=product, quantity=1)
+                    message = f"✅ Товар \"{product.title}\" добавлен в корзину"
+
+                await callback.message.answer(message)
+                await callback.answer()
+
+            except Customer.DoesNotExist:
+                await callback.message.answer('❌ Сначала зарегистрируйтесь с помощью /start')
+                await callback.answer()
+            except Product.DoesNotExist:
+                await callback.message.answer('❌ Товар не найден')
+                await callback.answer()
+            except Exception as e:
+                print(f'Ошибка: {e}')
+                await callback.message.answer('❌ Ошибка при добавлении товара в корзину')
+                await callback.answer()
+
+        @self.dp.callback_query(F.data == 'cart')
+        async def get_cart(callback: types.CallbackQuery):
+            print('get_cart')
+            try:
+                print('get customer')
+                customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
+                print('get cart')
+                cart = await sync_to_async(Cart.objects.get)(customer=customer)
+                print('get cart items')
+                cart_items = await sync_to_async(CartItem.objects.filter)(cart=cart)
+
+                print('create text')
+                products_text = 'Список товаров в корзине:\n\n'
+
+                # Один асинхронный запрос для всех данных
+                cart_data = await sync_to_async(
+                    lambda: list(cart.items.select_related('product').values(
+                        'product__title', 'product__price', 'quantity'
+                    ))
+                )()
+
+                for item in cart_data:
+                    print('add item into text')
+                    products_text += f"{item['product__title']} - {item['product__price']} ₽ | {item['quantity']} шт.\n"
+
+                print('total text')
+                # Асинхронно получаем общие данные
+                total_items = await sync_to_async(lambda: cart.total_items)()
+                total_price = await sync_to_async(lambda: cart.total_price)()
+
+                products_text += f'Всего товаров: {total_items}\nИтого: {total_price} ₽'
+
+                await callback.message.answer(products_text, parse_mode="Markdown")
+                await callback.answer()
+
+            except Cart.DoesNotExist:
+                await callback.message.answer('Корзина пуста')
+
+            except Exception as e:
+                print(f'Ошибка: {e}')
+                await callback.message.answer('❌ Ошибка при открытии корзины')
+                await callback.answer()
 
 # @self.dp.callback_query(F.data == "feedback")
 # async def feedback_callback(callback: types.CallbackQuery):

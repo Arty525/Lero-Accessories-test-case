@@ -76,14 +76,35 @@ class Order(models.Model):
 
 class Cart(models.Model):
     '''Модель корзины'''
-    products = models.ManyToManyField(Product)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
 
     def __str__(self):
-        return f'{self.customer} {self.products}'
+        return f'Корзина {self.customer}'
 
+    @property
+    def total_items(self):
+        return sum(item.quantity for item in self.items.all())
+
+    @property
+    def total_price(self):
+        return sum(item.product.price * item.quantity for item in self.items.all())
 
     class Meta:
         ordering = ['id']
         verbose_name = 'Корзина'
         verbose_name_plural = 'Корзины'
+
+class CartItem(models.Model):
+    '''Модель элемента корзины'''
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField(default=1)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.product.title} x{self.quantity}"
+
+    class Meta:
+        verbose_name = 'Элемент корзины'
+        verbose_name_plural = 'Элементы корзины'
+        unique_together = ['cart', 'product']  # Уникальная пара корзина-товар
