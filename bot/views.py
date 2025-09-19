@@ -4,6 +4,7 @@ import types
 from django.shortcuts import render
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from rest_framework.generics import RetrieveAPIView, DestroyAPIView, CreateAPIView, UpdateAPIView, ListAPIView
+from rest_framework.renderers import JSONRenderer
 
 from bot.models import Category, Product, Cart, Order, Customer
 from bot.serializers import CategorySerializer, ProductSerializer, CartSerializer, OrderSerializer
@@ -34,6 +35,7 @@ class CategoriesAPIListView(ListAPIView):
 
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+    renderer_classes = [JSONRenderer]
 
 
 class ProductsAPIListView(ListAPIView):

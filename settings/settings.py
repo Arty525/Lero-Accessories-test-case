@@ -28,7 +28,12 @@ SECRET_KEY = "django-insecure-3fk_3p@dyx0sg8-e@$4*-$%l!+1@ato*((yr+)78n*u-i$aszb
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['nocturnally-decorous-skylark.cloudpub.ru',
+                 'localhost',
+                 '127.0.0.1',
+                 ]
+
+WEBAPP_BASE_URL = 'https://nocturnally-decorous-skylark.cloudpub.ru'
 
 
 # Application definition
