@@ -18,6 +18,9 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv()
 
+def is_running_in_docker():
+    return os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER') == 'true'
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -136,10 +139,13 @@ DATABASES = {
         "NAME": os.getenv("DB_NAME"),
         "USER": os.getenv("DB_USER"),
         "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST"),
+        "HOST": 'db' if is_running_in_docker() else os.getenv('DB_HOST', 'localhost'),
         "PORT": os.getenv("DB_PORT", default="5432"),
     }
 }
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media/")
 
 DJANGO_ALLOW_ASYNC_UNSAFE = True
 
