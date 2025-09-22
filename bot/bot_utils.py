@@ -8,8 +8,7 @@ from bot.models import Customer, Product, CartItem, Cart
 async def get_welcome_text(user) -> str:
     try:
         customer = await sync_to_async(Customer.objects.get)(telegram_id=str(user.id))
-        welcome_text = f"""
-С возвращением, {customer.first_name}!
+        welcome_text = f"""С возвращением, {customer.first_name}!
 ✅ Вы уже зарегистрированы в системе как заказчик.
 📞 Телефон: {customer.phone}
 🏠 Адрес: {customer.address}
@@ -137,7 +136,7 @@ async def get_cart_data(customer) -> str:
 
 
 async def remove_item(customer, product_id):
-
+    error_message = '❌ Ошибка при удалении товара из корзины'
     try:
         cart = await sync_to_async(Cart.objects.get)(customer=customer)
         product = await sync_to_async(Product.objects.get)(id=product_id)
@@ -147,16 +146,42 @@ async def remove_item(customer, product_id):
 
     except Customer.DoesNotExist:
         print('Заказчик не найден')
-        return '❌ Ошибка при удалении товара из корзины'
+        return error_message
     except Cart.DoesNotExist:
         print('корзина не найдена')
-        return '❌ Ошибка при удалении товара из корзины'
+        return error_message
     except Product.DoesNotExist:
         print('товар не найден')
-        '❌ Ошибка при удалении товара из корзины'
+        return error_message
     except CartItem.DoesNotExist:
         print('CartItem не найден')
-        return '❌ Ошибка при удалении товара из корзины'
+        return error_message
     except Exception as e:
         print(f'Ошибка: {e}')
-        return '❌ Ошибка при удалении товара из корзины'
+        return error_message
+
+async def change_cart_item_quantity(customer, product_id, quantity):
+    error_message = '❌ Ошибка при изменении количества товара в корзине'
+    try:
+        cart = await sync_to_async(Cart.objects.get)(customer=customer)
+        product = await sync_to_async(Product.objects.get)(id=product_id)
+        cart_item = await sync_to_async(CartItem.objects.get)(cart=cart, product=product)
+        cart_item.quantity = quantity
+        await sync_to_async(cart_item.save)()
+        return '✅ Количество изменено'
+
+    except Customer.DoesNotExist:
+        print('Заказчик не найден')
+        return error_message
+    except Cart.DoesNotExist:
+        print('корзина не найдена')
+        return error_message
+    except Product.DoesNotExist:
+        print('товар не найден')
+        return error_message
+    except CartItem.DoesNotExist:
+        print('CartItem не найден')
+        return error_message
+    except Exception as e:
+        print(f'Ошибка: {e}')
+        return error_message

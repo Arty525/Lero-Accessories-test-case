@@ -1,16 +1,20 @@
 import asyncio
 import os
+from collections.abc import coroutine
+
 import django
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.session import aiohttp
 from aiogram.filters import Command
+from aiogram.fsm import state
+from aiogram.fsm.context import FSMContext
 from django.conf import settings
 from asgiref.sync import sync_to_async
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, BotCommand, \
     WebAppInfo
 from rest_framework.reverse import reverse_lazy, reverse
 from .bot_utils import update_phone, update_address, get_profile, get_welcome_text, get_cart_data, add_item_in_cart, \
-    remove_item
+    remove_item, change_cart_item_quantity
 from .models import Customer, Category, Product, Cart, CartItem
 
 
@@ -235,6 +239,7 @@ class DjangoBot:
             try:
                 customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
                 cart_data, total_items, total_price = await get_cart_data(customer)
+                await callback.message.answer('🛒 Ваша корзина:\n')
                 for item in cart_data:
                     cart_item_menu = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text='Изменить количество', callback_data=f'change_quantity_{item['product__id']}')],
@@ -243,11 +248,14 @@ class DjangoBot:
                     await callback.message.answer(f"{item['product__title']} - "
 f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_item_menu, parse_mode="Markdown")
                 total_text = f'Всего товаров: {total_items}, Сумма: {total_price}'
+                await callback.answer()
                 await callback.message.answer(total_text, parse_mode="Markdown")
             except Cart.DoesNotExist:
+                await callback.answer()
                 await callback.message.answer('Корзина пуста')
             except Exception as e:
                 print(f'Ошибка: {e}')
+                await callback.answer()
                 await callback.message.answer('❌ Ошибка при открытии корзины')
 
         @self.dp.callback_query(F.data.startswith('remove_from_cart_'))
@@ -255,7 +263,23 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
             customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
             item_id = callback.data.replace('remove_from_cart_', '')
             text_message = await remove_item(customer, item_id)
-            await callback.answer(text_message, parse_mode="Markdown")
+            await callback.message.answer(text_message, parse_mode="Markdown")
+            await get_cart(callback)
+            await callback.answer()
+
+        @self.dp.callback_query(F.data.startswith('change_quantity_'))
+        async def change_quantity(callback: types.CallbackQuery):
+            item_id = callback.data.replace('change_quantity_', '')
+            await callback.message.answer('Введите количество товара', parse='Markdown')
+            @self.dp.message(F.text.isdigit())
+            async def set_new_quantity(message: types.Message):
+                quantity = message.text
+                customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
+                message_text = await change_cart_item_quantity(customer, item_id, quantity)
+                await message.answer(message_text, parse_mode="Markdown")
+                await get_cart(callback)
+            await callback.answer()
+
 
     async def start_polling(self):
         """Запуск бота в режиме polling"""
