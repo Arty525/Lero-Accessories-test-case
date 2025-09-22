@@ -1,3 +1,5 @@
+from csv import excel
+
 from asgiref.sync import sync_to_async
 
 from bot.models import Customer, Product, CartItem, Cart
@@ -120,15 +122,41 @@ async def get_cart_data(customer) -> str:
     products_text = 'Список товаров в корзине:\n\n'
     cart_data = await sync_to_async(
         lambda: list(cart.items.select_related('product').values(
-            'product__title', 'product__price', 'quantity'
+            'product__id', 'product__title', 'product__price', 'quantity'
         ))
     )()
-    for item in cart_data:
-        products_text += f"{item['product__title']} - {item['product__price']} ₽ | {item['quantity']} шт.\n"
+    # for item in cart_data:
+    #     products_text += f"{item['product__title']} - {item['product__price']} ₽ | {item['quantity']} шт.\n"
     # Асинхронно получаем общие данные
     total_items = await sync_to_async(lambda: cart.total_items)()
     total_price = await sync_to_async(lambda: cart.total_price)()
 
-    products_text += f'Всего товаров: {total_items}\nИтого: {total_price} ₽'
+    # products_text += f'Всего товаров: {total_items}\nИтого: {total_price} ₽'
 
-    return products_text
+    return cart_data, total_items, total_price
+
+
+async def remove_item(customer, product_id):
+
+    try:
+        cart = await sync_to_async(Cart.objects.get)(customer=customer)
+        product = await sync_to_async(Product.objects.get)(id=product_id)
+        cart_item = await sync_to_async(CartItem.objects.get)(cart=cart, product=product)
+        await sync_to_async(cart_item.delete)()
+        return '✅ Товар удален из корзины'
+
+    except Customer.DoesNotExist:
+        print('Заказчик не найден')
+        return '❌ Ошибка при удалении товара из корзины'
+    except Cart.DoesNotExist:
+        print('корзина не найдена')
+        return '❌ Ошибка при удалении товара из корзины'
+    except Product.DoesNotExist:
+        print('товар не найден')
+        '❌ Ошибка при удалении товара из корзины'
+    except CartItem.DoesNotExist:
+        print('CartItem не найден')
+        return '❌ Ошибка при удалении товара из корзины'
+    except Exception as e:
+        print(f'Ошибка: {e}')
+        return '❌ Ошибка при удалении товара из корзины'

@@ -9,7 +9,8 @@ from asgiref.sync import sync_to_async
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, BotCommand, \
     WebAppInfo
 from rest_framework.reverse import reverse_lazy, reverse
-from .bot_utils import update_phone, update_address, get_profile, get_welcome_text, get_cart_data, add_item_in_cart
+from .bot_utils import update_phone, update_address, get_profile, get_welcome_text, get_cart_data, add_item_in_cart, \
+    remove_item
 from .models import Customer, Category, Product, Cart, CartItem
 
 
@@ -233,14 +234,28 @@ class DjangoBot:
         async def get_cart(callback: types.CallbackQuery):
             try:
                 customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
-                products_text = await get_cart_data(customer)
-                await callback.message.answer(products_text, parse_mode="Markdown")
+                cart_data, total_items, total_price = await get_cart_data(customer)
+                for item in cart_data:
+                    cart_item_menu = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text='Изменить количество', callback_data=f'change_quantity_{item['product__id']}')],
+                        [InlineKeyboardButton(text='Убрать из корзины', callback_data=f'remove_from_cart_{item['product__id']}')]
+                    ])
+                    await callback.message.answer(f"{item['product__title']} - "
+f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_item_menu, parse_mode="Markdown")
+                total_text = f'Всего товаров: {total_items}, Сумма: {total_price}'
+                await callback.message.answer(total_text, parse_mode="Markdown")
             except Cart.DoesNotExist:
                 await callback.message.answer('Корзина пуста')
-
             except Exception as e:
                 print(f'Ошибка: {e}')
                 await callback.message.answer('❌ Ошибка при открытии корзины')
+
+        @self.dp.callback_query(F.data.startswith('remove_from_cart_'))
+        async def remove_cart_item(callback: types.CallbackQuery):
+            customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
+            item_id = callback.data.replace('remove_from_cart_', '')
+            text_message = await remove_item(customer, item_id)
+            await callback.answer(text_message, parse_mode="Markdown")
 
     async def start_polling(self):
         """Запуск бота в режиме polling"""
