@@ -3,7 +3,7 @@ import string
 from datetime import datetime
 
 
-def order_number_generator() -> str:
+async def order_number_generator() -> str:
     """
     Генерирует уникальный номер заказа в формате AB1234DMY
     где AB - случайные буквы, 1234 - случайное число, DMY - дата

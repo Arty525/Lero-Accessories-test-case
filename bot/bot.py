@@ -1,7 +1,5 @@
 import asyncio
 import os
-from collections.abc import coroutine
-
 import django
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.session import aiohttp
@@ -14,9 +12,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
     WebAppInfo
 from rest_framework.reverse import reverse_lazy, reverse
 from .bot_utils import update_phone, update_address, get_profile, get_welcome_text, get_cart_data, add_item_in_cart, \
-    remove_item, change_cart_item_quantity
-from .models import Customer, Category, Product, Cart, CartItem
-
+    remove_item, change_cart_item_quantity, new_order
+from .models import Customer, Category, Product, Cart, CartItem, Order
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
 django.setup()
@@ -242,14 +239,23 @@ class DjangoBot:
                 await callback.message.answer('🛒 Ваша корзина:\n')
                 for item in cart_data:
                     cart_item_menu = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text='Изменить количество', callback_data=f'change_quantity_{item['product__id']}')],
-                        [InlineKeyboardButton(text='Убрать из корзины', callback_data=f'remove_from_cart_{item['product__id']}')]
+                        [InlineKeyboardButton(text='✏️ Изменить количество', callback_data=f'change_quantity_{item['product__id']}')],
+                        [InlineKeyboardButton(text='🗑️ Убрать из корзины', callback_data=f'remove_from_cart_{item['product__id']}')]
                     ])
                     await callback.message.answer(f"{item['product__title']} - "
 f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_item_menu, parse_mode="Markdown")
                 total_text = f'Всего товаров: {total_items}, Сумма: {total_price}'
+
+                cart_menu = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text='🗑️ Очистить корзину',
+                                          callback_data=f'clear_cart')],
+                    [InlineKeyboardButton(text='📦 Оформить заказ',
+                                          callback_data=f'take_order')]
+                ])
+
                 await callback.answer()
                 await callback.message.answer(total_text, parse_mode="Markdown")
+                await callback.message.answer('Выберите действие:', parse_mode="Markdown", reply_markup=cart_menu)
             except Cart.DoesNotExist:
                 await callback.answer()
                 await callback.message.answer('Корзина пуста')
@@ -280,10 +286,98 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
                 await get_cart(callback)
             await callback.answer()
 
+        @self.dp.callback_query(F.data.startswith('take_order'))
+        async def take_order(callback: types.CallbackQuery):
+            try:
+                print('take_order started')
+
+                # Создаем клавиатуру с методами доставки
+                delivery_method_list = []
+                for delivery_method in Order.DELIVERY_METHOD_CHOICES:
+                    delivery_method_list.append([
+                        InlineKeyboardButton(
+                            text=delivery_method[1],
+                            callback_data=f"delivery_{delivery_method[0]}"
+                        )
+                    ])
+
+                delivery_method_menu = InlineKeyboardMarkup(inline_keyboard=delivery_method_list)
+
+                # Получаем данные пользователя
+                customer = await sync_to_async(Customer.objects.get)(
+                    telegram_id=str(callback.from_user.id)
+                )
+                cart = await sync_to_async(Cart.objects.get)(customer=customer)
+
+                await callback.answer()
+                await callback.message.answer(
+                    'Выберите способ доставки:',
+                    reply_markup=delivery_method_menu,
+                    parse_mode="Markdown"
+                )
+
+            except Cart.DoesNotExist as e:
+                print(f'⚠️ Ошибка: {e}')
+                await callback.answer()
+                await callback.message.answer('❌ Корзина пуста')
+            except Customer.DoesNotExist as e:
+                print(f'⚠️ Ошибка: {e}')
+                await callback.answer()
+                await callback.message.answer('❌ Сначала зарегистрируйтесь с помощью /start')
+            except Exception as e:
+                print(f'⚠️ Ошибка: {e}')
+                await callback.answer()
+                await callback.message.answer('❌ Ошибка при создании заказа')
+
+        # Отдельный обработчик для выбора способа доставки
+        @self.dp.callback_query(F.data.startswith('delivery_'))
+        async def create_order(callback: types.CallbackQuery):
+            try:
+                print('create_order started')
+
+                # Извлекаем метод доставки из callback_data
+                delivery_method = callback.data.replace('delivery_', '')
+                print(f'Delivery method: {delivery_method}')
+
+                # Получаем данные пользователя
+                customer = await sync_to_async(Customer.objects.get)(
+                    telegram_id=str(callback.from_user.id)
+                )
+                cart = await sync_to_async(Cart.objects.get)(customer=customer)
+
+                # Создаем заказ
+                order_message = await new_order(customer, cart, delivery_method)
+
+                await callback.answer()
+                await callback.message.answer(order_message, parse_mode="Markdown")
+
+            except Exception as e:
+                print(f'⚠️ Ошибка в create_order: {e}')
+                await callback.answer()
+                await callback.message.answer('❌ Ошибка при создании заказа')
+
+        @self.dp.callback_query(F.data.startswith('clear_cart'))
+        async def clear_cart(callback: types.CallbackQuery):
+            await callback.answer()
+            await callback.message.answer('⚠️Вы уверены что хотите очистить корзину?', parse_mode="Markdown")
+            clear_cart_menu = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='✅ Да',
+                                      callback_data=f'yes')],
+                [InlineKeyboardButton(text='❌ Нет',
+                                      callback_data=f'no')]
+            ])
+            @self.dp.callback_query(F.data == 'yes')
+            async def delete_cart(callback: types.CallbackQuery):
+                customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
+                cart = await sync_to_async(Cart.objects.get_or_create)(customer=customer)
+                cart.delete()
+                await callback.answer()
+                await callback.message.answer('✅ Корзина очищена', parse_mode="Markdown")
+
 
     async def start_polling(self):
         """Запуск бота в режиме polling"""
-        print("🤖 Telegram бот запущен с интеграцией модели Customer!")
+        print("🤖 Telegram бот запущен")
         # Устанавливаем команды меню при запуске
         await self.set_bot_commands()
         await self.dp.start_polling(self.bot)

@@ -60,10 +60,10 @@ class Order(models.Model):
 
     order_number = models.CharField(max_length=100, unique=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
     delivery_method = models.CharField(max_length=100, choices=DELIVERY_METHOD_CHOICES)
     is_confirmed = models.BooleanField(default=False)
     order_date_time = models.DateTimeField(auto_now=False, auto_now_add=True)
+    address = models.CharField(max_length=200, default='Не указан')
 
     def __str__(self):
         return (f'{self.order_number} | {self.customer_name} | {self.customer_phone}')
@@ -108,3 +108,19 @@ class CartItem(models.Model):
         verbose_name = 'Элемент корзины'
         verbose_name_plural = 'Элементы корзины'
         unique_together = ['cart', 'product']  # Уникальная пара корзина-товар
+
+
+class OrderItem(models.Model):
+    '''Модель элемента заказа'''
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField(default=1)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.product.title} x{self.quantity}"
+
+    class Meta:
+        verbose_name = 'Элемент заказа'
+        verbose_name_plural = 'Элементы заказа'
+        unique_together = ['order', 'product']  # Уникальная пара корзина-товар

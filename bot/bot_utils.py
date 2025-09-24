@@ -2,7 +2,8 @@ from csv import excel
 
 from asgiref.sync import sync_to_async
 
-from bot.models import Customer, Product, CartItem, Cart
+from bot.models import Customer, Product, CartItem, Cart, OrderItem, Order
+from bot.services import order_number_generator
 
 
 async def get_welcome_text(user) -> str:
@@ -118,19 +119,13 @@ async def add_item_in_cart(cart, product_id):
 
 async def get_cart_data(customer) -> str:
     cart = await sync_to_async(Cart.objects.get)(customer=customer)
-    products_text = 'Список товаров в корзине:\n\n'
     cart_data = await sync_to_async(
         lambda: list(cart.items.select_related('product').values(
             'product__id', 'product__title', 'product__price', 'quantity'
         ))
     )()
-    # for item in cart_data:
-    #     products_text += f"{item['product__title']} - {item['product__price']} ₽ | {item['quantity']} шт.\n"
-    # Асинхронно получаем общие данные
     total_items = await sync_to_async(lambda: cart.total_items)()
     total_price = await sync_to_async(lambda: cart.total_price)()
-
-    # products_text += f'Всего товаров: {total_items}\nИтого: {total_price} ₽'
 
     return cart_data, total_items, total_price
 
@@ -185,3 +180,13 @@ async def change_cart_item_quantity(customer, product_id, quantity):
     except Exception as e:
         print(f'Ошибка: {e}')
         return error_message
+
+async def new_order(customer, cart, delivery_method):
+    cart_items = await sync_to_async(CartItem.objects.filter)(cart=cart)
+    order_number = await order_number_generator()
+    order = await sync_to_async(Order.objects.create)(customer=customer, order_number=order_number,
+                                 delivery_method=delivery_method)
+    for item in cart_items:
+        await sync_to_async(OrderItem.objects.create)(order=order, product=item.product, quantity=item.quantity, address=customer.address)
+    return (f'✅Заказ успешно создан.\nВаш номер заказа: {order.order_number}\nАдрес доставки: {order.address}\n'
+            f'Способ доставки: {order.delivery_method}')
