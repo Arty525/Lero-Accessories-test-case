@@ -206,3 +206,21 @@ async def new_order(customer, cart, delivery_method):
     except Exception as e:
         print(f"Ошибка при создании заказа: {e}")
         return '❌ Ошибка при создании заказа'
+
+
+@sync_to_async
+def is_manager(user_id):
+    """Проверяет, является ли пользователь менеджером"""
+    try:
+        manager = Manager.objects.get(phone=user_id)  # или telegram_id, если добавите поле
+        return manager.is_staff
+    except Manager.DoesNotExist:
+        return False
+
+@sync_to_async
+def get_manager(user_id):
+    """Получает объект менеджера"""
+    try:
+        return Manager.objects.get(phone=user_id)
+    except Manager.DoesNotExist:
+        return None
