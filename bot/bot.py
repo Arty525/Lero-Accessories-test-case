@@ -4,20 +4,21 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from django.conf import settings
 from asgiref.sync import sync_to_async
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from .bot_utils import update_phone, update_address, get_profile, get_welcome_text, get_cart_data, add_item_in_cart, \
     remove_item, change_cart_item_quantity, new_order
-from .models import Customer, Category, Product, Cart, Order
+from .models import Customer, Category, Product, Cart, Order, Manager
+from .middlewares import ManagerMiddleware
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
 django.setup()
+
 
 class DjangoBot:
     def __init__(self):
         self.bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
         self.dp = Dispatcher()
         self.setup_handlers()
-
 
     def get_inline_menu(self):
         """Inline меню"""
@@ -30,6 +31,18 @@ class DjangoBot:
             ]
         )
 
+    def get_admin_keyboard(self):
+        """Клавиатура администратора"""
+        return ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="📦 Управление заказами"), KeyboardButton(text="🛍️ Управление товарами")],
+                [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="👥 Менеджеры")],
+                [KeyboardButton(text="🔙 Выйти из админки")]
+            ],
+            resize_keyboard=True
+        )
+
+
     async def set_bot_commands(self):
         """Установка команд меню бота"""
         commands = [
@@ -37,6 +50,14 @@ class DjangoBot:
             BotCommand(command="menu", description="Показать главное меню"),
         ]
         await self.bot.set_my_commands(commands)
+
+    async def is_manager(self, user_id):
+        """Проверяет, является ли пользователь менеджером"""
+        try:
+            manager = await sync_to_async(Manager.objects.get)(telegram_id=user_id)
+            return manager.is_staff
+        except Manager.DoesNotExist:
+            return False
 
     def setup_handlers(self):
         @self.dp.message(Command("start"))
@@ -65,17 +86,17 @@ class DjangoBot:
             phone = message.text.strip()
             answer_text = await update_phone(user, phone)
             await message.answer(answer_text)
+            @self.dp.message(F.text.len() > 10)
+            async def process_address(message: types.Message):
+                """Обработка адреса"""
+                user = message.from_user
+                address = message.text.strip()
+                answer_text = await update_address(user, address)
+                await message.answer(answer_text)
+                if answer_text.startswith("Регистрация завершена!"):
+                    await message.answer("Выберите действие:", reply_markup=self.get_inline_menu())
+                    await self.set_bot_commands()
 
-        @self.dp.message(F.text.len() > 10)
-        async def process_address(message: types.Message):
-            """Обработка адреса"""
-            user = message.from_user
-            address = message.text.strip()
-            answer_text = await update_address(user, address)
-            await message.answer(answer_text)
-            if answer_text.startswith("Регистрация завершена!"):
-                await message.answer("Выберите действие:", reply_markup=self.get_inline_menu())
-                await self.set_bot_commands()
 
         @self.dp.callback_query(F.data == "profile")
         async def cmd_profile(callback: types.CallbackQuery):
@@ -233,11 +254,14 @@ class DjangoBot:
                 await callback.message.answer('🛒 Ваша корзина:\n')
                 for item in cart_data:
                     cart_item_menu = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text='✏️ Изменить количество', callback_data=f'change_quantity_{item['product__id']}')],
-                        [InlineKeyboardButton(text='🗑️ Убрать из корзины', callback_data=f'remove_from_cart_{item['product__id']}')]
+                        [InlineKeyboardButton(text='✏️ Изменить количество',
+                                              callback_data=f'change_quantity_{item['product__id']}')],
+                        [InlineKeyboardButton(text='🗑️ Убрать из корзины',
+                                              callback_data=f'remove_from_cart_{item['product__id']}')]
                     ])
                     await callback.message.answer(f"{item['product__title']} - "
-f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_item_menu, parse_mode="Markdown")
+                                                  f"{item['product__price']} ₽ | {item['quantity']} шт.\n",
+                                                  reply_markup=cart_item_menu, parse_mode="Markdown")
                 total_text = f'Всего товаров: {total_items}, Сумма: {total_price}'
 
                 cart_menu = InlineKeyboardMarkup(inline_keyboard=[
@@ -271,6 +295,7 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
         async def change_quantity(callback: types.CallbackQuery):
             item_id = callback.data.replace('change_quantity_', '')
             await callback.message.answer('Введите количество товара', parse='Markdown')
+
             @self.dp.message(F.text.isdigit())
             async def set_new_quantity(message: types.Message):
                 quantity = message.text
@@ -278,13 +303,12 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
                 message_text = await change_cart_item_quantity(customer, item_id, quantity)
                 await message.answer(message_text, parse_mode="Markdown")
                 await get_cart(callback)
+
             await callback.answer()
 
         @self.dp.callback_query(F.data.startswith('take_order'))
         async def take_order(callback: types.CallbackQuery):
             try:
-                print('take_order started')
-
                 # Создаем клавиатуру с методами доставки
                 delivery_method_list = []
                 for delivery_method in Order.DELIVERY_METHOD_CHOICES:
@@ -327,11 +351,8 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
         @self.dp.callback_query(F.data.startswith('delivery_'))
         async def create_order(callback: types.CallbackQuery):
             try:
-                print('create_order started')
-
                 # Извлекаем метод доставки из callback_data
                 delivery_method = callback.data.replace('delivery_', '')
-                print(f'Delivery method: {delivery_method}')
 
                 # Получаем данные пользователя
                 customer = await sync_to_async(Customer.objects.get)(
@@ -384,6 +405,7 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
                 [InlineKeyboardButton(text='❌ Нет',
                                       callback_data=f'no')]
             ])
+
             @self.dp.callback_query(F.data == 'yes')
             async def delete_cart(callback: types.CallbackQuery):
                 customer = await sync_to_async(Customer.objects.get)(telegram_id=str(callback.from_user.id))
@@ -438,7 +460,6 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
                     else:
                         await callback.message.answer(order_info, parse_mode="Markdown")
 
-
                 await callback.answer()
 
             except Customer.DoesNotExist:
@@ -458,7 +479,236 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
                 await callback.answer()
                 await callback.message.answer('❌ Заказ отменен', parse_mode="Markdown")
 
+        # АДМИНИСТРАТИВНЫЕ КОМАНДЫ
+        @self.dp.message(Command("admin"))
+        async def admin_login(message: types.Message):
+            """Вход в административную панель"""
+            user_id = str(message.from_user.id)
 
+            is_admin = await self.is_manager(user_id)
+            if not is_admin:
+                await message.answer("❌ У вас нет доступа к административной панели")
+                return
+
+            await message.answer(
+                "👋 Добро пожаловать в панель администратора!",
+                reply_markup=self.get_admin_keyboard()
+            )
+
+        @self.dp.message(F.text == "🔙 Выйти из админки")
+        async def admin_logout(message: types.Message):
+            """Выход из административной панели"""
+            await message.answer(
+                "Вы вышли из административной панели",
+                reply_markup=ReplyKeyboardRemove()
+            )
+
+        @self.dp.message(F.text == "📦 Управление заказами")
+        async def admin_orders_management(message: types.Message):
+            """Управление заказами"""
+            is_admin = await self.is_manager(str(message.from_user.id))
+            if not is_admin:
+                await message.answer("❌ У вас нет прав")
+                return
+
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="📋 Все заказы", callback_data="admin_orders_all")],
+                    [InlineKeyboardButton(text="⏳ В обработке", callback_data="admin_orders_pending")],
+                    [InlineKeyboardButton(text="🚚 В доставке", callback_data="admin_orders_delivery")],
+                    [InlineKeyboardButton(text="✅ Завершенные", callback_data="admin_orders_completed")]
+                ]
+            )
+            await message.answer("Управление заказами:", reply_markup=keyboard)
+
+        @self.dp.callback_query(F.data.startswith("admin_orders_"))
+        async def admin_show_orders(callback: types.CallbackQuery):
+            """Показать заказы для администратора"""
+            is_admin = await self.is_manager(str(callback.from_user.id))
+            if not is_admin:
+                await callback.answer("❌ У вас нет прав")
+                return
+
+            status_map = {
+                "admin_orders_all": None,
+                "admin_orders_pending": "pending",
+                "admin_orders_delivery": "delivery",
+                "admin_orders_completed": "completed"
+            }
+
+            status = status_map.get(callback.data)
+            if status:
+                orders = await sync_to_async(list)(
+                    Order.objects.filter(status=status).order_by('-order_date_time')[:10])
+            else:
+                orders = await sync_to_async(list)(Order.objects.all().order_by('-order_date_time')[:10])
+
+            if not orders:
+                await callback.message.answer("📭 Заказов нет")
+                await callback.answer()
+                return
+
+            for order in orders:
+                status_display = await sync_to_async(order.get_status_display)()
+                delivery_display = await sync_to_async(order.get_delivery_method_display)()
+
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="✏️ Статус", callback_data=f"admin_order_status_{order.id}"),
+                            InlineKeyboardButton(text="📋 Детали", callback_data=f"admin_order_details_{order.id}")
+                        ]
+                    ]
+                )
+
+                order_info = f"""
+📦 *Заказ №{order.order_number}*
+👤 Клиент: {order.customer.first_name}
+📞 Телефон: {order.customer.phone}
+🏠 Адрес: {order.address}
+🚚 Доставка: {delivery_display}
+📊 Статус: {status_display}
+💰 Сумма: {await sync_to_async(lambda: order.total_price)()} ₽
+                """
+
+                await callback.message.answer(order_info, parse_mode="Markdown", reply_markup=keyboard)
+
+            await callback.answer()
+
+        @self.dp.callback_query(F.data.startswith("admin_order_status_"))
+        async def admin_change_order_status(callback: types.CallbackQuery):
+            """Изменение статуса заказа администратором"""
+            is_admin = await self.is_manager(str(callback.from_user.id))
+            if not is_admin:
+                await callback.answer("❌ У вас нет прав")
+                return
+
+            order_id = callback.data.replace("admin_order_status_", "")
+            order = await sync_to_async(Order.objects.get)(id=order_id)
+
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="⏳ В обработке", callback_data=f"admin_set_status_{order.id}_pending")],
+                    [InlineKeyboardButton(text="🚚 В доставке", callback_data=f"admin_set_status_{order.id}_delivery")],
+                    [InlineKeyboardButton(text="✅ Завершен", callback_data=f"admin_set_status_{order.id}_completed")],
+                    [InlineKeyboardButton(text="❌ Отменен", callback_data=f"admin_set_status_{order.id}_cancelled")]
+                ]
+            )
+
+            await callback.message.edit_text(
+                f"Выберите статус для заказа №{order.order_number}:",
+                reply_markup=keyboard
+            )
+            await callback.answer()
+
+        @self.dp.callback_query(F.data.startswith("admin_set_status_"))
+        async def admin_set_order_status(callback: types.CallbackQuery):
+            """Установка статуса заказа"""
+            is_admin = await self.is_manager(str(callback.from_user.id))
+            if not is_admin:
+                await callback.answer("❌ У вас нет прав")
+                return
+
+            data = callback.data.split("_")
+            order_id = data[3]
+            new_status = data[4]
+
+            order = await sync_to_async(Order.objects.get)(id=order_id)
+            old_status = order.status
+            order.status = new_status
+            await sync_to_async(order.save)()
+
+            status_display = dict(Order.STATUS_CHOICES).get(new_status, new_status)
+            await callback.message.edit_text(
+                f"✅ Статус заказа №{order.order_number} изменен на: {status_display}"
+            )
+            await callback.answer()
+
+        @self.dp.message(F.text == "📊 Статистика")
+        async def admin_statistics(message: types.Message):
+            """Статистика магазина"""
+            is_admin = await self.is_manager(str(message.from_user.id))
+            if not is_admin:
+                await message.answer("❌ У вас нет прав")
+                return
+
+            try:
+                total_orders = await sync_to_async(Order.objects.count)()
+                total_customers = await sync_to_async(Customer.objects.count)()
+                total_products = await sync_to_async(Product.objects.count)()
+
+                pending_orders = await sync_to_async(Order.objects.filter(status='pending').count)()
+                delivery_orders = await sync_to_async(Order.objects.filter(status='delivery').count)()
+                completed_orders = await sync_to_async(Order.objects.filter(status='completed').count)()
+
+                total_revenue = await sync_to_async(
+                    lambda: sum(order.total_price for order in Order.objects.filter(status='completed'))
+                )()
+
+                stats_text = f"""
+📊 *Статистика магазина*
+
+📦 Всего заказов: {total_orders}
+👥 Клиентов: {total_customers}
+🛍️ Товаров: {total_products}
+
+📈 *Статусы заказов:*
+⏳ В обработке: {pending_orders}
+🚚 В доставке: {delivery_orders}
+✅ Завершено: {completed_orders}
+
+💰 Выручка: {total_revenue} ₽
+                """
+
+                await message.answer(stats_text, parse_mode="Markdown")
+
+            except Exception as e:
+                await message.answer("❌ Ошибка загрузки статистики")
+
+        @self.dp.message(F.text == "🛍️ Управление товарами")
+        async def admin_products_management(message: types.Message):
+            """Управление товарами"""
+            is_admin = await self.is_manager(str(message.from_user.id))
+            if not is_admin:
+                await message.answer("❌ У вас нет прав")
+                return
+
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="📋 Список товаров", callback_data="admin_products_list")],
+                    [InlineKeyboardButton(text="📊 Остатки", callback_data="admin_products_stock")]
+                ]
+            )
+            await message.answer("Управление товарами:", reply_markup=keyboard)
+
+        @self.dp.callback_query(F.data == "admin_products_list")
+        async def admin_products_list(callback: types.CallbackQuery):
+            """Список товаров для администратора"""
+            is_admin = await self.is_manager(str(callback.from_user.id))
+            if not is_admin:
+                await callback.answer("❌ У вас нет прав")
+                return
+
+            products = await sync_to_async(list)(Product.objects.all()[:10])
+
+            for product in products:
+                product_info = f"""
+🛍️ *{product.title}*
+💰 Цена: {product.price} ₽
+📦 Остаток: {product.remainder} шт.
+📝 {product.description or 'Нет описания'}
+                """
+
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="✏️ Редактировать",
+                                              callback_data=f"admin_edit_product_{product.id}")]
+                    ]
+                )
+
+                await callback.message.answer(product_info, parse_mode="Markdown", reply_markup=keyboard)
+
+            await callback.answer()
 
     async def start_polling(self):
         """Запуск бота в режиме polling"""
@@ -466,3 +716,6 @@ f"{item['product__price']} ₽ | {item['quantity']} шт.\n", reply_markup=cart_
         # Устанавливаем команды меню при запуске
         await self.set_bot_commands()
         await self.dp.start_polling(self.bot)
+
+        self.dp.message.middleware(ManagerMiddleware())
+        self.dp.callback_query.middleware(ManagerMiddleware())

@@ -154,6 +154,7 @@ class Manager(models.Model):
     last_name = models.CharField(max_length=100)
     phone = models.CharField(max_length=100, unique=True)
     is_staff = models.BooleanField(default=True)
+    telegram_id = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
         return f'{self.first_name} {self.last_name} {self.phone}'

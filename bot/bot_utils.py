@@ -1,5 +1,5 @@
 from asgiref.sync import sync_to_async
-from bot.models import Customer, Product, CartItem, Cart, OrderItem, Order
+from bot.models import Customer, Product, CartItem, Cart, OrderItem, Order, Manager
 from bot.services import order_number_generator
 
 
@@ -137,16 +137,12 @@ async def remove_item(customer, product_id):
         return '✅ Товар удален из корзины'
 
     except Customer.DoesNotExist:
-        print('Заказчик не найден')
         return error_message
     except Cart.DoesNotExist:
-        print('корзина не найдена')
         return error_message
     except Product.DoesNotExist:
-        print('товар не найден')
         return error_message
     except CartItem.DoesNotExist:
-        print('CartItem не найден')
         return error_message
     except Exception as e:
         print(f'Ошибка: {e}')
@@ -163,16 +159,12 @@ async def change_cart_item_quantity(customer, product_id, quantity):
         return '✅ Количество изменено'
 
     except Customer.DoesNotExist:
-        print('Заказчик не найден')
         return error_message
     except Cart.DoesNotExist:
-        print('корзина не найдена')
         return error_message
     except Product.DoesNotExist:
-        print('товар не найден')
         return error_message
     except CartItem.DoesNotExist:
-        print('CartItem не найден')
         return error_message
     except Exception as e:
         print(f'Ошибка: {e}')

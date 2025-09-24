@@ -40,6 +40,6 @@ class CartAdmin(admin.ModelAdmin):
 
 @admin.register(Manager)
 class ManagerAdmin(admin.ModelAdmin):
-    fields = ['first_name', 'last_name', 'phone']
-    list_display = ('id', 'first_name', 'last_name', 'phone')
-    search_fields = ('first_name', 'last_name', 'phone')
+    fields = ['first_name', 'last_name', 'phone', 'telegram_id']
+    list_display = ('id', 'first_name', 'last_name', 'phone', 'telegram_id')
+    search_fields = ('first_name', 'last_name', 'phone', 'telegram_id')
