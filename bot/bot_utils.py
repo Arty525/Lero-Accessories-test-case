@@ -1,7 +1,4 @@
-from csv import excel
-
 from asgiref.sync import sync_to_async
-
 from bot.models import Customer, Product, CartItem, Cart, OrderItem, Order
 from bot.services import order_number_generator
 
@@ -181,12 +178,36 @@ async def change_cart_item_quantity(customer, product_id, quantity):
         print(f'Ошибка: {e}')
         return error_message
 
+
 async def new_order(customer, cart, delivery_method):
-    cart_items = await sync_to_async(CartItem.objects.filter)(cart=cart)
-    order_number = await order_number_generator()
-    order = await sync_to_async(Order.objects.create)(customer=customer, order_number=order_number,
-                                 delivery_method=delivery_method)
-    for item in cart_items:
-        await sync_to_async(OrderItem.objects.create)(order=order, product=item.product, quantity=item.quantity, address=customer.address)
-    return (f'✅Заказ успешно создан.\nВаш номер заказа: {order.order_number}\nАдрес доставки: {order.address}\n'
-            f'Способ доставки: {order.delivery_method}')
+    try:
+        # Генерируем номер заказа
+        order_number = await sync_to_async(order_number_generator)()
+
+        # Создаем заказ
+        order = await sync_to_async(Order.objects.create)(
+            customer=customer,
+            order_number=order_number,
+            delivery_method=delivery_method
+        )
+
+        # Получаем элементы корзины
+        cart_items = await sync_to_async(list)(CartItem.objects.filter(cart=cart).select_related('product'))
+
+        # Создаем элементы заказа
+        for item in cart_items:
+            await sync_to_async(OrderItem.objects.create)(
+                order=order,
+                product=item.product,
+                quantity=item.quantity,
+            )
+
+
+        return (f'✅ Заказ успешно создан.\n'
+                f'📦 Номер заказа: {order.order_number}\n'
+                f'🏠 Адрес доставки: {customer.address}\n'
+                f'🚚 Способ доставки: {order.get_delivery_method_display()}')
+
+    except Exception as e:
+        print(f"Ошибка при создании заказа: {e}")
+        return '❌ Ошибка при создании заказа'

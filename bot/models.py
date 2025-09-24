@@ -53,20 +53,42 @@ class Customer(models.Model):
 
 class Order(models.Model):
     '''Модель заказа'''
-    DELIVERY_METHOD_CHOICES = (('self_pickup', 'самовывоз'),
+    DELIVERY_METHOD_CHOICES = (('self_pickup', 'Самовывоз'),
                                ('pick_up_point', 'В пункт выдачи'),
                                ('mail', 'Почтой'),
                                ('courier', 'Курьером'))
 
+    STATUS_CHOICES = (('created', 'Создан'),
+                      ('padding', 'Отправлен'),
+                      ('delivered', 'Доставлен'),
+                      ('cancelled', 'Отменен'))
+
     order_number = models.CharField(max_length=100, unique=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
-    delivery_method = models.CharField(max_length=100, choices=DELIVERY_METHOD_CHOICES)
+    delivery_method = models.CharField(max_length=100, choices=DELIVERY_METHOD_CHOICES, default='self_pickup')
     is_confirmed = models.BooleanField(default=False)
     order_date_time = models.DateTimeField(auto_now=False, auto_now_add=True)
     address = models.CharField(max_length=200, default='Не указан')
+    status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='created')
+
+    @property
+    def total_price(self):
+        return sum(item.product.price * item.quantity for item in self.items.all())
+
+    @property
+    def total_items(self):
+        return sum(item.quantity for item in self.items.all())
+
+    def get_delivery_method_display(self):
+        """Возвращает человеко-читаемое название способа доставки"""
+        return dict(self.DELIVERY_METHOD_CHOICES).get(self.delivery_method, 'Не указан')
+
+    def get_order_status(self):
+        """Возвращает человеко-читаемое название статуса"""
+        return dict(self.STATUS_CHOICES).get(self.status)
 
     def __str__(self):
-        return (f'{self.order_number} | {self.customer_name} | {self.customer_phone}')
+        return (f'{self.order_number} | {self.customer.first_name} {self.customer.last_name} | {self.customer.phone}')
 
     class Meta:
         ordering = ['order_date_time', 'order_number']
@@ -124,3 +146,19 @@ class OrderItem(models.Model):
         verbose_name = 'Элемент заказа'
         verbose_name_plural = 'Элементы заказа'
         unique_together = ['order', 'product']  # Уникальная пара корзина-товар
+
+
+class Manager(models.Model):
+    '''Модель менеджера заказов'''
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    phone = models.CharField(max_length=100, unique=True)
+    is_staff = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f'{self.first_name} {self.last_name} {self.phone}'
+
+    class Meta:
+        ordering = ['first_name', 'last_name']
+        verbose_name = 'Менеджер'
+        verbose_name_plural = 'Менеджеры'

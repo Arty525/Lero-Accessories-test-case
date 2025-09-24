@@ -1,10 +1,6 @@
-from aiogram import Bot
 from django.contrib import admin
+from bot.models import Customer, Product, Category, Order, Cart, Manager
 
-from bot.models import Customer, Product, Category, Order, Cart
-
-
-# Register your models here.
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
@@ -29,14 +25,21 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    fields = ['order_number', 'customer', 'order_date_time', 'product', 'is_confirmed', 'delivery_method']
-    list_display = ('id', 'customer', 'order_date_time', 'is_confirmed', 'delivery_method')
+    fields = ['order_number', 'customer', 'is_confirmed', 'delivery_method', 'status']
+    list_display = ('id', 'customer', 'order_date_time', 'is_confirmed', 'delivery_method', 'status')
     search_fields = ('customer', 'product')
-    list_filter = ('is_confirmed', 'delivery_method')
+    list_filter = ('is_confirmed', 'delivery_method', 'status')
 
 
 @admin.register(Cart)
 class CartAdmin(admin.ModelAdmin):
     fields = ['customer', 'products']
     list_display = ('id', 'customer')
-    search_fields = ('customer', 'products')
+    search_fields = ('customer',)
+
+
+@admin.register(Manager)
+class ManagerAdmin(admin.ModelAdmin):
+    fields = ['first_name', 'last_name', 'phone']
+    list_display = ('id', 'first_name', 'last_name', 'phone')
+    search_fields = ('first_name', 'last_name', 'phone')
