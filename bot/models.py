@@ -1,3 +1,4 @@
+from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
@@ -146,20 +147,3 @@ class OrderItem(models.Model):
         verbose_name = 'Элемент заказа'
         verbose_name_plural = 'Элементы заказа'
         unique_together = ['order', 'product']  # Уникальная пара корзина-товар
-
-
-class Manager(models.Model):
-    '''Модель менеджера заказов'''
-    first_name = models.CharField(max_length=100)
-    last_name = models.CharField(max_length=100)
-    phone = models.CharField(max_length=100, unique=True)
-    is_staff = models.BooleanField(default=True)
-    telegram_id = models.CharField(max_length=100, unique=True)
-
-    def __str__(self):
-        return f'{self.first_name} {self.last_name} {self.phone}'
-
-    class Meta:
-        ordering = ['first_name', 'last_name']
-        verbose_name = 'Менеджер'
-        verbose_name_plural = 'Менеджеры'

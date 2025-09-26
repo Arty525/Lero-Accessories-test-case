@@ -1,5 +1,5 @@
 from django.contrib import admin
-from bot.models import Customer, Product, Category, Order, Cart, Manager
+from bot.models import Customer, Product, Category, Order, Cart
 
 
 @admin.register(Customer)
@@ -36,10 +36,3 @@ class CartAdmin(admin.ModelAdmin):
     fields = ['customer', 'products']
     list_display = ('id', 'customer')
     search_fields = ('customer',)
-
-
-@admin.register(Manager)
-class ManagerAdmin(admin.ModelAdmin):
-    fields = ['first_name', 'last_name', 'phone', 'telegram_id']
-    list_display = ('id', 'first_name', 'last_name', 'phone', 'telegram_id')
-    search_fields = ('first_name', 'last_name', 'phone', 'telegram_id')
